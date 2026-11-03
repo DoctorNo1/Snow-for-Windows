@@ -34,6 +34,8 @@ IGNORED = {
     "EdgeUiInputTopWndClass", "EdgeUiInputWndClass", "ApplicationManager_ImmersiveShellWindow",
     "Internet Explorer_Hidden", "SnowForWindowsOverlay", "SnowForWindowsTray",
 }
+# The desktop: its wallpaper and icons. The snow sits just above it.
+DESKTOP = {"Progman", "WorkerW"}
 # Switchers, menus and shell flyouts hide the snow behind them but don't collect any.
 COVER_ONLY = {
     "XamlExplorerHostIslandWindow", "MultitaskingViewFrame", "TaskListThumbnailWnd", "ForegroundStaging",
@@ -63,6 +65,10 @@ class App:
         self.monitors: list[tuple[tuple, tuple]] = []  # (full, work) rectangles
         self.windows: list[tuple[int, tuple, bool, bool]] = []  # (hwnd, frame, collects snow, topmost)
         self._above_overlay = 0  # how many tracked windows the last enumeration found above the overlay
+        self._desktop = None  # the highest visible desktop window, from the last enumeration
+        self._overlay_above_desktop = False
+        self._busy_votes = 0  # consecutive full-screen readings that disagree with self.busy
+        self._events = 0  # show, hide and move events logged so far
         self.shown = False
         self.locked = False
         self.busy = False
@@ -213,9 +219,15 @@ class App:
         if hwnd == self.overlay:
             self._above_overlay = len(self.windows)
             return 1
+        if self._desktop:
+            return 1  # below the desktop nothing shows, so nothing there matters
         if hwnd == self.tray or not w.IsWindowVisible(hwnd) or w.IsIconic(hwnd) or w.is_cloaked(hwnd):
             return 1
         cls = w.class_name(hwnd)
+        if cls in DESKTOP:
+            self._desktop = hwnd
+            self._overlay_above_desktop = self._above_overlay >= 0
+            return 1
         if cls in IGNORED:
             return 1
         ex = w.GetWindowLongPtrW(hwnd, w.GWL_EXSTYLE)
@@ -242,6 +254,8 @@ class App:
         """Tell the simulation where the windows and the ground are. Windows come front first."""
         self.windows = []
         self._above_overlay = -1
+        self._desktop = None
+        self._overlay_above_desktop = False
         w.EnumWindows(self._enum_windows, 0)
         self._place()
         occluders, specs = [], []
@@ -262,6 +276,7 @@ class App:
         if not self.shown:
             w.ShowWindow(self.overlay, w.SW_SHOWNOACTIVATE)
             self.shown = True
+            self._event("shown")
             self._raise()
             self._above_overlay = -1
             self._place()
@@ -270,6 +285,7 @@ class App:
         if self.shown:
             w.ShowWindow(self.overlay, w.SW_HIDE)
             self.shown = False
+            self._event("hidden (locked: %s, full-screen app: %s)", self.locked, self.busy)
             if self.canvas:
                 self.canvas.invalidate()
 
@@ -284,24 +300,47 @@ class App:
         every frame."""
         if self.prefs.over_windows or not self.shown:
             return
+        below_all = self._above_overlay >= len(self.windows)
+        above_desktop = self._desktop is None or self._overlay_above_desktop
+        if below_all and above_desktop:
+            return  # already in place
         normal = [hwnd for hwnd, _, _, topmost in self.windows if not topmost]
-        if not normal:
+        if normal:
+            after = normal[-1]  # right under the lowest window
+        elif self._desktop:
+            after = w.GetWindow(self._desktop, w.GW_HWNDPREV)  # right above the desktop
+            if after == self.overlay:
+                return
+        else:
             return
-        if self._above_overlay >= len(self.windows):
-            return  # found, and already below every tracked window
-        w.SetWindowPos(self.overlay, normal[-1], 0, 0, 0, 0, w.SWP_NOMOVE | w.SWP_NOSIZE | w.SWP_NOACTIVATE)
+        w.SetWindowPos(self.overlay, after, 0, 0, 0, 0, w.SWP_NOMOVE | w.SWP_NOSIZE | w.SWP_NOACTIVATE)
+        self._event("moved under %s (below all windows: %s, above desktop: %s)",
+                    w.class_name(after) if after else "the top", below_all, above_desktop)
         self._above_overlay = len(self.windows)
+        self._overlay_above_desktop = True
+
+    def _event(self, message: str, *args) -> None:
+        """Log what shows, hides and moves the snow; the first ones in full, then a sample."""
+        self._events += 1
+        if self._events <= 60 or self._events % 200 == 0:
+            log.info("[%d] " + message, self._events, *args)
 
     def _fullscreen_app(self) -> bool:
         """The window in front covers a whole monitor: a game, a video or a presentation."""
         fg = w.GetForegroundWindow()
-        if not fg or fg in (self.overlay, self.tray) or w.class_name(fg) in IGNORED:
+        if not fg or fg in (self.overlay, self.tray):
+            return False
+        cls = w.class_name(fg)
+        if cls in IGNORED or cls in DESKTOP or cls in COVER_ONLY:
             return False
         r = wt.RECT()
         if not w.GetWindowRect(fg, ctypes.byref(r)):
             return False
-        return any(r.left <= m[0] and r.top <= m[1] and r.right >= m[2] and r.bottom >= m[3]
+        full = any(r.left <= m[0] and r.top <= m[1] and r.right >= m[2] and r.bottom >= m[3]
                    for m, _ in self.monitors)
+        if full:
+            self._fullscreen_class = cls
+        return full
 
     def frame_interval(self) -> float:
         return 1 / 60 if self.prefs.smooth_60fps else 1 / 30
@@ -318,7 +357,14 @@ class App:
                 self.check_monitors()
             self.next_monitors = now + 3
         if now >= self.next_busy:
-            self.busy = w.shell_busy() or self._fullscreen_app()
+            reading = w.shell_busy() or self._fullscreen_app()
+            # Change only on two readings in a row, so a single odd one can't blink the snow.
+            self._busy_votes = self._busy_votes + 1 if reading != self.busy else 0
+            if self._busy_votes >= 2:
+                self.busy = reading
+                self._busy_votes = 0
+                self._event("full-screen app %s (%s)", "in front" if reading else "gone",
+                            getattr(self, "_fullscreen_class", "shell"))
             self.next_busy = now + 0.5
         if self.locked or self.busy or self.canvas is None:
             self.hide()
@@ -338,7 +384,8 @@ class App:
             self.last = 0.0
             return 1.0
         draw(self.world, self.canvas)
-        w.update_layered(self.overlay, self.mem_dc, self.vx, self.vy, self.vw, self.vh)
+        if not w.update_layered(self.overlay, self.mem_dc, self.vx, self.vy, self.vw, self.vh):
+            self._event("UpdateLayeredWindow failed: %d", ctypes.get_last_error())
         self.show()
         if now >= self.next_top:
             self._raise()  # other topmost windows come and go; stay in front of them
