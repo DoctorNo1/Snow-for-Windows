@@ -4,63 +4,70 @@
 
 <p align="center">На твоєму робочому столі йде сніг. · It's snowing on your desktop.</p>
 
-Маленька програма для Windows 10 і 11, яка живе в треї біля годинника. М'який сніг падає по всьому екрану, лягає на верхні краї вікон і зсипається, коли ти їх рухаєш. Курсором можна розгрібати замети.
+Маленька програма на Python для Windows 10 і 11, яка живе в треї біля годинника. М'який сніг падає по всьому екрану, лягає на верхні краї вікон і зсипається, коли ти їх рухаєш. Курсором можна розгрібати замети.
 
 ## Що робить сніг
 
 - **Падає.** Кожна сніжинка летить у своєму темпі й гойдається на легкому вітрі, який повільно змінюється.
-- **Лягає.** Сніг накопичується вздовж низу екрана (над панеллю завдань) і на верхніх краях вікон, розповзаючись у природні м'які замети.
-- **Рухається.** Проведи курсором крізь замет: він розступається, а сніг розлітається порохом. Сніжинки в повітрі теж ухиляються від курсора.
-- **Зсипається.** Посунь, згорни чи закрий вікно — сніг з нього падає грудками, які розбиваються на порох там, де падають. З країв вікна надлишок снігу поступово скочується.
-- **Тане.** З увімкненим «Танення снігу» замети повільно підтають і не заполоняють екран.
-- **Ховається.** На скріншотах і під час демонстрації екрана снігу не видно (якщо не ввімкнути «Показувати на скріншотах»). Програма ставиться на паузу, коли комп'ютер заблоковано або запущено гру, відео чи презентацію на весь екран.
-- **Не заважає.** Вікно зі снігом прозоре для миші: усі кліки проходять до твоїх програм.
+- **Лягає.** Сніг накопичується вздовж низу екрана (над панеллю завдань) і на верхніх краях вікон, розповзаючись у м'які замети.
+- **Рухається.** Проведи курсором крізь замет, і він розступиться, а сніг розлетиться порохом. Сніжинки в повітрі теж ухиляються від курсора.
+- **Зсипається.** Посунь, згорни чи закрий вікно, і сніг упаде з нього грудками, що розбиваються на порох.
+- **Тане.** З увімкненим «Танення снігу» замети повільно підтають.
+- **Ховається.** На скріншотах і під час демонстрації екрана снігу не видно (якщо не ввімкнути «Показувати на скріншотах»). Сніг ставиться на паузу, коли комп'ютер заблоковано або відкрито гру, відео чи презентацію на весь екран.
+- **Не заважає.** Вікно зі снігом прозоре для миші, тож усі кліки проходять до твоїх програм.
+
+## Запуск
+
+Потрібен Python 3.9 або новіший з [python.org](https://www.python.org/downloads/) (під час встановлення постав галочку «Add python.exe to PATH»).
+
+У PowerShell, у папці з кодом:
+
+```powershell
+pip install -r requirements.txt
+```
+
+```powershell
+pythonw run.pyw
+```
+
+Можна й просто двічі клацнути `run.pyw`. Біля годинника з'явиться сніжинка, і почне падати сніг. Якщо щось пішло не так, причина буде в `%APPDATA%\SnowForWindows\log.txt`.
+
+## Зібрати exe
+
+Щоб отримати один файл `SnowForWindows.exe`, який запускається без Python:
+
+```powershell
+.\build.bat
+```
+
+Готовий файл буде в `dist\SnowForWindows.exe`. Його також збирає GitHub Actions: вкладка **Actions** → останній запуск **Build** → артефакт **SnowForWindows**.
+
+Файл не має цифрового підпису, тому під час першого запуску Windows SmartScreen може показати попередження. Натисни «Докладніше» → «Усе одно запустити».
 
 ## Меню в треї
-
-Клікни на сніжинку біля годинника:
 
 - **Снігопад**: Вимкнено, Легкий, Помірний, Сильний, Хуртовина, Мінливий (сам посилюється й слабне протягом дня)
 - **Накопичувати сніг**, **Танення снігу**, **Сніг на вікнах**, **Прибрати сніг**
 - **Показувати на скріншотах**, **Плавний рух (60 кадрів/с)**, **Запускати з Windows**
 - **Про програму**, **Вийти**
 
-Меню українською, якщо мова Windows українська, і англійською в інших випадках. Налаштування зберігаються в `%APPDATA%\SnowForWindows\settings.json`, а автозапуск — у `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-
-## Завантаження
-
-Готовий `SnowForWindows.exe` збирає GitHub Actions: відкрий вкладку **Actions** → останній запуск **Build** → артефакт **SnowForWindows**. Для тегів `v*` файл також додається до релізу. Встановлення не потрібне: просто запусти exe.
-
-Файл не має цифрового підпису, тому під час першого запуску Windows SmartScreen може показати попередження: натисни «Докладніше» → «Усе одно запустити».
-
-## Збирання
-
-Потрібен лише Go 1.22 або новіший.
-
-На Windows (PowerShell або cmd), у папці з кодом:
-
-```powershell
-go build -trimpath -ldflags "-H=windowsgui -s -w" -o SnowForWindows.exe .
-```
-
-На Linux або macOS (bash):
-
-```sh
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H=windowsgui -s -w" -o SnowForWindows.exe .
-```
-
-`go test ./...` перевіряє симуляцію снігу (вона не залежить від Windows), а `go generate .` перебудовує іконку, маніфест і дані про версію (`rsrc_windows_*.syso`).
+Меню українською, якщо мова Windows українська, і англійською в інших випадках. Налаштування лежать у `%APPDATA%\SnowForWindows\settings.json`.
 
 ## Як це влаштовано
 
-- `internal/snow`: симуляція (сніжинки, грудки, порох, замети як карта висот для кожного уступу) і програмний рендерер у буфер BGRA, який очищує лише те, що малював у попередньому кадрі.
-- `internal/app`: прозоре клікабельне наскрізь вікно `WS_EX_LAYERED | WS_EX_TRANSPARENT` поверх усіх моніторів, яке оновлюється через `UpdateLayeredWindow`; відстеження вікон через `EnumWindows` і межі рамок DWM (вікна на інших віртуальних робочих столах пропускаються); меню в треї.
-- `internal/win`: потрібні виклики Win32 через `syscall`, тож не треба ні cgo, ні сторонніх бібліотек під час виконання.
+| Файл | Що робить |
+| --- | --- |
+| `snow_for_windows/sim.py` | Симуляція: сніжинки, грудки й порох у масивах numpy, замети як висота снігу в кожному стовпчику пікселів кожного уступу. |
+| `snow_for_windows/render.py` | Малює сніг у буфер пікселів і щокадру стирає лише те, що малювала минулого разу. |
+| `snow_for_windows/app.py` | Прозоре вікно поверх усіх моніторів, відстеження вікон, меню в треї, головний цикл. |
+| `snow_for_windows/win32.py` | Виклики Windows API через `ctypes`. |
+| `snow_for_windows/icon.py` | Малює іконку-сніжинку (`python -m snow_for_windows.icon` перебудовує `assets/`). |
+| `tests/test_snow.py` | Тести симуляції: `python -m unittest discover -s tests`. |
+
+Окрім numpy, жодних бібліотек не потрібно.
 
 ---
 
 ### English
 
-A tiny tray app for Windows 10 and 11. Soft snow drifts across your screen, settles along the bottom of the screen and on the tops of your windows, and slips off when you move, minimize or close them. Sweep the drifts aside with the cursor. Choose the snowfall (Off, Light, Steady, Heavy, Blizzard, Variable) and toggle Accumulate, Melt Snow, Snow on Windows, Show in Screenshots, Smooth Motion and Start with Windows from the snowflake icon in the tray. The snow pauses while the PC is locked or a full-screen app is in front, and it never catches a click.
-
-Build on Windows with `go build -ldflags "-H=windowsgui" -o SnowForWindows.exe .` (from Linux or macOS, prefix it with `GOOS=windows`).
+A small Python tray app for Windows 10 and 11. Soft snow drifts across your screen, settles along the bottom of the screen and on the tops of your windows, and slips off when you move, minimize or close them. Sweep the drifts aside with the cursor. Run it with `pip install -r requirements.txt` and `pythonw run.pyw`, or build a standalone exe with `build.bat` (PyInstaller).

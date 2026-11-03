@@ -11,28 +11,37 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-python@v5
         with:
-          go-version: "1.22"
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
       - name: Test the simulation
-        run: go test ./...
-      - name: Vet for Windows
-        run: GOOS=windows go vet ./...
+        run: python -m unittest discover -s tests -v
+
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt pyinstaller
+      - name: Test the simulation
+        run: python -m unittest discover -s tests -v
+      - name: Check the Windows declarations load
+        run: python -c "import snow_for_windows.win32 as w, ctypes; assert ctypes.sizeof(w.NOTIFYICONDATAW) == 976, ctypes.sizeof(w.NOTIFYICONDATAW); import snow_for_windows.app"
       - name: Build SnowForWindows.exe
-        run: |
-          mkdir -p dist
-          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H=windowsgui -s -w" -o dist/SnowForWindows.exe .
-          GOOS=windows GOARCH=arm64 go build -trimpath -ldflags "-H=windowsgui -s -w" -o dist/SnowForWindows-arm64.exe .
+        run: python -m PyInstaller --noconfirm --onefile --windowed --name SnowForWindows --icon assets/snowflake.ico run.pyw
       - uses: actions/upload-artifact@v4
         with:
           name: SnowForWindows
-          path: dist/*.exe
+          path: dist/SnowForWindows.exe
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.exe
+          files: dist/SnowForWindows.exe
