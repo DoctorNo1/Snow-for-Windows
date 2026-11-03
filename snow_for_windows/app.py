@@ -26,7 +26,7 @@ MENU_TIMER = 1
 
 CMD_LEVEL = 100  # followed by one id per snowfall level
 CMD_ACCUMULATE, CMD_MELT, CMD_ON_WINDOWS, CMD_CLEAR = 200, 201, 202, 203
-CMD_SCREENSHOTS, CMD_SMOOTH, CMD_LOGIN, CMD_ABOUT, CMD_QUIT = 204, 205, 206, 207, 208
+CMD_SCREENSHOTS, CMD_SMOOTH, CMD_LOGIN, CMD_ABOUT, CMD_QUIT, CMD_OVER = 204, 205, 206, 207, 208, 209
 
 # Shell windows that never hold snow: the desktop, the taskbar, shadows and tooltips.
 IGNORED = {
@@ -61,7 +61,8 @@ class App:
         self.vx = self.vy = self.vw = self.vh = 0
         self.scale = 0.0
         self.monitors: list[tuple[tuple, tuple]] = []  # (full, work) rectangles
-        self.windows: list[tuple[int, tuple, bool]] = []  # (hwnd, frame, collects snow)
+        self.windows: list[tuple[int, tuple, bool, bool]] = []  # (hwnd, frame, collects snow, topmost)
+        self._above_overlay = 0  # how many tracked windows the last enumeration found above the overlay
         self.shown = False
         self.locked = False
         self.busy = False
@@ -102,7 +103,8 @@ class App:
             if not w.RegisterClassExW(ctypes.byref(wc)):
                 log.error("RegisterClassExW %s failed: %d", name, ctypes.get_last_error())
                 return False
-        ex = w.WS_EX_LAYERED | w.WS_EX_TRANSPARENT | w.WS_EX_TOOLWINDOW | w.WS_EX_NOACTIVATE | w.WS_EX_TOPMOST
+        # Not topmost: by default the snow sits just above the desktop, behind every window.
+        ex = w.WS_EX_LAYERED | w.WS_EX_TRANSPARENT | w.WS_EX_TOOLWINDOW | w.WS_EX_NOACTIVATE
         self.overlay = w.CreateWindowExW(ex, "SnowForWindowsOverlay", "Snow", w.WS_POPUP, 0, 0, 1, 1,
                                          None, None, self.inst, None)
         self.tray = w.CreateWindowExW(w.WS_EX_TOOLWINDOW, "SnowForWindowsTray", "Snow for Windows", w.WS_POPUP,
@@ -208,7 +210,10 @@ class App:
             self.bmp = None
 
     def _on_window(self, hwnd, lp):
-        if hwnd in (self.overlay, self.tray) or not w.IsWindowVisible(hwnd) or w.IsIconic(hwnd) or w.is_cloaked(hwnd):
+        if hwnd == self.overlay:
+            self._above_overlay = len(self.windows)
+            return 1
+        if hwnd == self.tray or not w.IsWindowVisible(hwnd) or w.IsIconic(hwnd) or w.is_cloaked(hwnd):
             return 1
         cls = w.class_name(hwnd)
         if cls in IGNORED:
@@ -230,17 +235,19 @@ class App:
                 if full[0] <= cx < full[2] and full[1] <= t < full[3]:
                     collects = t > work[1] + 4
                     break
-        self.windows.append((hwnd, (l, t, r, b), collects))
+        self.windows.append((hwnd, (l, t, r, b), collects, bool(ex & w.WS_EX_TOPMOST)))
         return 1
 
     def track(self) -> None:
         """Tell the simulation where the windows and the ground are. Windows come front first."""
         self.windows = []
+        self._above_overlay = -1
         w.EnumWindows(self._enum_windows, 0)
+        self._place()
         occluders, specs = [], []
         inset = int(3 * self.scale)  # stay clear of rounded corners
         vx, vy = self.vx, self.vy
-        for i, (hwnd, (l, t, r, b), collects) in enumerate(self.windows):
+        for i, (hwnd, (l, t, r, b), collects, _) in enumerate(self.windows):
             occluders.append(Rect(l - vx, t - vy, r - vx, b - vy))
             if collects and self.prefs.snow_on_windows:
                 specs.append(SurfaceSpec(int(hwnd), l - vx + inset, r - vx - inset, t - vy, z=i))
@@ -254,8 +261,10 @@ class App:
     def show(self) -> None:
         if not self.shown:
             w.ShowWindow(self.overlay, w.SW_SHOWNOACTIVATE)
-            self._raise()
             self.shown = True
+            self._raise()
+            self._above_overlay = -1
+            self._place()
 
     def hide(self) -> None:
         if self.shown:
@@ -265,7 +274,34 @@ class App:
                 self.canvas.invalidate()
 
     def _raise(self) -> None:
-        w.SetWindowPos(self.overlay, w.HWND_TOPMOST, 0, 0, 0, 0, w.SWP_NOMOVE | w.SWP_NOSIZE | w.SWP_NOACTIVATE)
+        if self.prefs.over_windows:
+            w.SetWindowPos(self.overlay, w.HWND_TOPMOST, 0, 0, 0, 0, w.SWP_NOMOVE | w.SWP_NOSIZE | w.SWP_NOACTIVATE)
+
+    def _place(self) -> None:
+        """Behind windows: keep the overlay just under the lowest window, above the desktop.
+
+        Only moves it when the last enumeration found a window below it, so it doesn't reshuffle the z-order
+        every frame."""
+        if self.prefs.over_windows or not self.shown:
+            return
+        normal = [hwnd for hwnd, _, _, topmost in self.windows if not topmost]
+        if not normal:
+            return
+        if self._above_overlay >= len(self.windows):
+            return  # found, and already below every tracked window
+        w.SetWindowPos(self.overlay, normal[-1], 0, 0, 0, 0, w.SWP_NOMOVE | w.SWP_NOSIZE | w.SWP_NOACTIVATE)
+        self._above_overlay = len(self.windows)
+
+    def _fullscreen_app(self) -> bool:
+        """The window in front covers a whole monitor: a game, a video or a presentation."""
+        fg = w.GetForegroundWindow()
+        if not fg or fg in (self.overlay, self.tray) or w.class_name(fg) in IGNORED:
+            return False
+        r = wt.RECT()
+        if not w.GetWindowRect(fg, ctypes.byref(r)):
+            return False
+        return any(r.left <= m[0] and r.top <= m[1] and r.right >= m[2] and r.bottom >= m[3]
+                   for m, _ in self.monitors)
 
     def frame_interval(self) -> float:
         return 1 / 60 if self.prefs.smooth_60fps else 1 / 30
@@ -282,7 +318,7 @@ class App:
                 self.check_monitors()
             self.next_monitors = now + 3
         if now >= self.next_busy:
-            self.busy = w.shell_busy()
+            self.busy = w.shell_busy() or self._fullscreen_app()
             self.next_busy = now + 0.5
         if self.locked or self.busy or self.canvas is None:
             self.hide()
@@ -331,6 +367,12 @@ class App:
         amount, variable = prefs_mod.level(self.prefs.intensity)
         self.world.settings = Settings(amount, variable, self.prefs.accumulate, self.prefs.melt)
         w.exclude_from_capture(self.overlay, not self.prefs.show_in_screenshots)
+        if self.prefs.over_windows:
+            self._raise()
+        else:
+            flags = w.SWP_NOMOVE | w.SWP_NOSIZE | w.SWP_NOACTIVATE
+            w.SetWindowPos(self.overlay, w.HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+            self._above_overlay = -1
         self.next_track = 0.0
         if save:
             prefs_mod.save(self.prefs)
@@ -390,6 +432,7 @@ class App:
             w.AppendMenuW(menu, check(p.accumulate), CMD_ACCUMULATE, t.accumulate)
             w.AppendMenuW(menu, check(p.melt), CMD_MELT, t.melt)
             w.AppendMenuW(menu, check(p.snow_on_windows), CMD_ON_WINDOWS, t.on_windows)
+            w.AppendMenuW(menu, check(p.over_windows), CMD_OVER, t.over_windows)
             w.AppendMenuW(menu, w.MF_STRING, CMD_CLEAR, t.clear)
             w.AppendMenuW(menu, w.MF_SEPARATOR, 0, None)
             w.AppendMenuW(menu, check(p.show_in_screenshots), CMD_SCREENSHOTS, t.in_screenshots)
@@ -424,6 +467,8 @@ class App:
             p.snow_on_windows = not p.snow_on_windows
         elif cmd == CMD_SCREENSHOTS:
             p.show_in_screenshots = not p.show_in_screenshots
+        elif cmd == CMD_OVER:
+            p.over_windows = not p.over_windows
         elif cmd == CMD_SMOOTH:
             p.smooth_60fps = not p.smooth_60fps
         elif cmd == CMD_LOGIN:

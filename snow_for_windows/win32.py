@@ -53,6 +53,7 @@ SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
 HWND_TOPMOST = wt.HWND(-1)
+HWND_NOTOPMOST = wt.HWND(-2)
 
 SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 76, 77, 78, 79
 SM_CXSMICON = 49
@@ -170,6 +171,7 @@ MsgWaitForMultipleObjectsEx = _fn(user32, "MsgWaitForMultipleObjectsEx", wt.DWOR
                                   wt.DWORD, wt.DWORD, wt.DWORD)
 GetCursorPos = _fn(user32, "GetCursorPos", wt.BOOL, P(wt.POINT))
 EnumWindows = _fn(user32, "EnumWindows", wt.BOOL, WNDENUMPROC, wt.LPARAM)
+GetForegroundWindow = _fn(user32, "GetForegroundWindow", wt.HWND)
 IsWindowVisible = _fn(user32, "IsWindowVisible", wt.BOOL, wt.HWND)
 IsIconic = _fn(user32, "IsIconic", wt.BOOL, wt.HWND)
 IsZoomed = _fn(user32, "IsZoomed", wt.BOOL, wt.HWND)
@@ -330,13 +332,16 @@ def exclude_from_capture(hwnd, exclude: bool) -> None:
 
 
 def shell_busy() -> bool:
-    """A full-screen app, game or presentation is in front."""
+    """A full-screen Direct3D game or a presentation is running.
+
+    QUNS_BUSY is left out on purpose: the shell reports it for any window that covers a whole monitor, and the
+    snow overlay itself is one, so the snow would keep pausing itself and blink."""
     if not SHQueryUserNotificationState:
         return False
     state = ctypes.c_int()
     if SHQueryUserNotificationState(ctypes.byref(state)) != 0:
         return False
-    return state.value in (QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN, QUNS_PRESENTATION_MODE)
+    return state.value in (QUNS_RUNNING_D3D_FULL_SCREEN, QUNS_PRESENTATION_MODE)
 
 
 def new_frame_timer():

@@ -17,6 +17,7 @@ class Prefs:
     snow_on_windows: bool = True
     show_in_screenshots: bool = False
     smooth_60fps: bool = False
+    over_windows: bool = False  # draw the snow in front of every window instead of behind them
     welcomed: bool = False
 
 
