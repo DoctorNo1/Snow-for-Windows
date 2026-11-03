@@ -35,7 +35,15 @@
 
 ## Збирання
 
-Потрібен лише Go 1.22 або новіший. Збирати можна на будь-якій системі:
+Потрібен лише Go 1.22 або новіший.
+
+На Windows (PowerShell або cmd), у папці з кодом:
+
+```powershell
+go build -trimpath -ldflags "-H=windowsgui -s -w" -o SnowForWindows.exe .
+```
+
+На Linux або macOS (bash):
 
 ```sh
 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H=windowsgui -s -w" -o SnowForWindows.exe .
@@ -55,4 +63,4 @@ GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H=windowsgui -s -w" -o S
 
 A tiny tray app for Windows 10 and 11. Soft snow drifts across your screen, settles along the bottom of the screen and on the tops of your windows, and slips off when you move, minimize or close them. Sweep the drifts aside with the cursor. Choose the snowfall (Off, Light, Steady, Heavy, Blizzard, Variable) and toggle Accumulate, Melt Snow, Snow on Windows, Show in Screenshots, Smooth Motion and Start with Windows from the snowflake icon in the tray. The snow pauses while the PC is locked or a full-screen app is in front, and it never catches a click.
 
-Build with `GOOS=windows go build -ldflags "-H=windowsgui" -o SnowForWindows.exe .`
+Build on Windows with `go build -ldflags "-H=windowsgui" -o SnowForWindows.exe .` (from Linux or macOS, prefix it with `GOOS=windows`).
